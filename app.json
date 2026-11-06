@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "RiskPro",
+    "slug": "riskpro-pilot",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/riskpro-logo.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#121212",
+    "splash": {
+      "image": "./assets/riskpro-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.khotso_m.riskpropilot"
+    },
+    "android": {
+      "package": "com.khotso_m.riskpropilot",
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/riskpro-logo.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "RiskPro uses the camera to photograph hazards."
+        }
+      ]
+    ]
+  }
+}
