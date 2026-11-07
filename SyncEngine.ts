@@ -1,4 +1,5 @@
 import NetInfo from '@react-native-community/netinfo';
+import { Alert } from 'react-native';
 import { getReadyAssessments, markAsSynced } from './db';
 
 const SYNC_URL = 'https://api.riskpro.co.za/v1/sync';
@@ -13,6 +14,20 @@ export type SyncResult = {
 };
 
 let syncing = false;
+
+export function handleSyncOutcome(success: boolean): void {
+  if (success) {
+    Alert.alert(
+      'Sync Complete',
+      'All authorized assessments have uploaded to the surface database.',
+    );
+    return;
+  }
+  Alert.alert(
+    'Saved Offline',
+    'Your assessment is secured on this device. It will automatically upload to the surface database as soon as a network connection is detected.',
+  );
+}
 
 export function startSyncEngine(): () => void {
   return NetInfo.addEventListener((state) => {

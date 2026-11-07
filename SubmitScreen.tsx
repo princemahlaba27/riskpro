@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getDashboardCounts } from './db';
-import { processSyncQueue } from './SyncEngine';
+import { handleSyncOutcome, processSyncQueue } from './SyncEngine';
 import { colors } from './theme';
 import { ActionButton, MutedText, ScreenScroll } from './ui';
 
@@ -29,16 +29,7 @@ export function SubmitScreen() {
     try {
       const result = await processSyncQueue();
       await reload();
-      if (!result.success) {
-        Alert.alert('Sync', result.error ?? 'Sync failed.');
-        return;
-      }
-      Alert.alert(
-        'Sync',
-        result.synced === 0
-          ? 'No ready assessments to submit.'
-          : `Submitted ${result.synced} assessment${result.synced === 1 ? '' : 's'}.`,
-      );
+      handleSyncOutcome(result.success);
     } finally {
       setSyncing(false);
     }

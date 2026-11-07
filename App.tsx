@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, StyleSheet, Text, View } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { ActivityIndicator, Alert, BackHandler, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator, type BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import {
   createNativeStackNavigator,
   type NativeStackNavigationProp,
@@ -37,6 +37,20 @@ function NewTab() {
   return null;
 }
 
+function NewTabButton({ children, href, style, ...props }: BottomTabBarButtonProps) {
+  return (
+    <TouchableOpacity
+      {...props}
+      accessibilityRole="button"
+      style={[style, styles.newTabButton]}
+    >
+      <View style={styles.newTabFace}>
+        <Ionicons name="add" size={32} color="#FFF" />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 function MainTabs() {
   const insets = useSafeAreaInsets();
   return (
@@ -46,17 +60,16 @@ function MainTabs() {
         tabBarActiveTintColor: colors.orange,
         tabBarInactiveTintColor: '#8A8A8A',
         tabBarStyle: {
-          height: 60 + insets.bottom,
-          paddingBottom: insets.bottom,
-          backgroundColor: colors.background,
-          borderTopColor: colors.border,
+          backgroundColor: '#161616',
+          borderTopColor: '#282828',
+          height: 72 + insets.bottom,
+          paddingBottom: 10 + insets.bottom,
+          paddingTop: 8,
+          overflow: 'visible',
         },
-        tabBarIcon: ({ color, size }) => {
-          if (route.name === 'New') {
-            return <Feather name="plus-circle" color={colors.orange} size={32} />;
-          }
-          return <Feather name={TAB_ICONS[route.name]} color={color} size={size} />;
-        },
+        tabBarIcon: ({ color, size }) => (
+          <Feather name={TAB_ICONS[route.name]} color={color} size={size} />
+        ),
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
@@ -64,6 +77,7 @@ function MainTabs() {
       <Tab.Screen
         name="New"
         component={NewTab}
+        options={{ tabBarButton: (props) => <NewTabButton {...props} /> }}
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             e.preventDefault();
@@ -192,5 +206,25 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginTop: 16,
     textAlign: 'center',
+  },
+  newTabButton: {
+    top: -20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FF5E00',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  newTabFace: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#FF5E00',
+    borderWidth: 3,
+    borderColor: '#121212',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

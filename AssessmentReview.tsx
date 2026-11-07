@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Alert, Image, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Print from 'expo-print';
@@ -12,7 +12,7 @@ import {
 } from './db';
 import type { RootStackParamList } from './navigation';
 import { SignaturePadModal } from './SignaturePadModal';
-import { processSyncQueue } from './SyncEngine';
+import { handleSyncOutcome, processSyncQueue } from './SyncEngine';
 import { colors } from './theme';
 import { ActionButton, BodyText, Card, MutedText, ScreenScroll, StatusPill } from './ui';
 
@@ -29,52 +29,149 @@ function joinList(items: readonly string[]): string {
   return items.length === 0 ? 'None' : items.join(', ');
 }
 
-function assessmentHtml(assessment: AssessmentV2): string {
-  const hazards = assessment.hazards
-    .map((hazard) => {
-      const klass = hazard.severity_class ?? '—';
-      const action = hazard.severity_class ? CLASS_ACTIONS[hazard.severity_class] : '';
-      return `<li>${escapeHtml(hazard.name)} — Class ${escapeHtml(klass)}${action ? ` (${escapeHtml(action)})` : ''}</li>`;
-    })
-    .join('');
-  const checklist = CHECKLIST_QUESTIONS.map((question, index) => {
-    const answer = assessment.checklist.answers[index] ?? '—';
-    return `<li>${escapeHtml(question)}: ${escapeHtml(answer)}</li>`;
-  }).join('');
-  const team = assessment.team_members
-    .map((member) => `<li>${escapeHtml(`${member.name} ${member.surname}`.trim())} — ${escapeHtml(member.occupation)}</li>`)
-    .join('');
-  const supervisor = assessment.supervisor_signature_uri ? 'Signed' : 'Not signed';
-  return `<!DOCTYPE html>
+async function handleExportPdf(htmlContent: string): Promise<void> {
+  try {
+    const file = await Print.printToFileAsync({ html: htmlContent, base64: false });
+    let shareUri = file.uri;
+    if (Platform.OS === 'android' && !shareUri.startsWith('file://')) {
+      shareUri = `file://${shareUri}`;
+    }
+    if (!(await Sharing.isAvailableAsync())) {
+      Alert.alert('Sharing Unavailable', 'File sharing is not supported on this device.');
+      return;
+    }
+    await Sharing.shareAsync(shareUri, {
+      UTI: '.pdf',
+      mimeType: 'application/pdf',
+      dialogTitle: 'Export Risk Assessment PDF',
+    });
+  } catch (error) {
+    console.error('PDF Export Failure:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    Alert.alert('Export Failed', message);
+  }
+}
+
+const ASSESSMENT_PAGE_HTML = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
   <style>
     @page { size: A4; margin: 12mm; }
-    body { font-family: sans-serif; color: #111; font-size: 12px; margin: 0; }
-    h1 { font-size: 20px; margin: 0 0 8px; }
-    h2 { font-size: 14px; margin: 12px 0 4px; }
-    p, li { margin: 2px 0; }
-    ul { margin: 0; padding-left: 18px; }
+    body { font-family: sans-serif; color: #111; font-size: 11px; margin: 0; }
+    .title-block { border-bottom: 3px solid #FF5A00; margin-bottom: 10px; padding-bottom: 6px; }
+    .title-block h1 { font-size: 20px; margin: 0; }
+    .title-block p { margin: 2px 0 0; color: #FF5A00; font-weight: 700; letter-spacing: 1px; }
+    table { width: 100%; border-collapse: collapse; margin: 0 0 8px; }
+    th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
+    th { background: #f4f4f4; }
+    h2 { font-size: 13px; margin: 10px 0 4px; }
+    .names { margin: 0; padding-left: 16px; }
+    .signoff img { max-height: 72px; max-width: 220px; }
   </style>
 </head>
 <body>
-  <h1>RiskPro assessment</h1>
-  <p><strong>Job:</strong> ${escapeHtml(assessment.job_task)}</p>
-  <p><strong>Workplace:</strong> ${escapeHtml(assessment.workplace)}</p>
-  <p><strong>Date:</strong> ${escapeHtml(formatTimestamp(assessment.date))}</p>
-  <p><strong>Shift:</strong> ${escapeHtml(assessment.shift)}</p>
-  <p><strong>Assessor:</strong> ${escapeHtml(assessment.assessor)}</p>
+  <div class="title-block">
+    <h1>RiskPro</h1>
+    <p>PRE-WORK RISK ASSESSMENT</p>
+  </div>
+  <table>
+    <tr><th>Date</th><td>{{DATE}}</td><th>Shift</th><td>{{SHIFT}}</td></tr>
+    <tr><th>Workplace</th><td>{{WORKPLACE}}</td><th>Department</th><td>{{DEPARTMENT}}</td></tr>
+    <tr><th>Assessor</th><td colspan="3">{{ASSESSOR}}</td></tr>
+    <tr><th>Permits</th><td colspan="3">{{PERMITS}}</td></tr>
+  </table>
+  <h2>Equipment / PPE</h2>
+  <table>
+    <tr><th>Equipment</th><td>{{EQUIPMENT}}</td></tr>
+    <tr><th>PPE</th><td>{{PPE}}</td></tr>
+  </table>
   <h2>Hazards</h2>
-  <ul>${hazards || '<li>None</li>'}</ul>
+  <table>
+    <tr><th>Hazard</th><th>Class</th><th>Controls</th><th>Status</th></tr>
+    {{HAZARD_ROWS}}
+  </table>
   <h2>Checklist</h2>
-  <ul>${checklist}</ul>
-  ${assessment.checklist.rectify_action ? `<p><strong>Rectify:</strong> ${escapeHtml(assessment.checklist.rectify_action)}</p>` : ''}
-  <h2>Team</h2>
-  <ul>${team || '<li>None</li>'}</ul>
-  <p><strong>Supervisor:</strong> ${supervisor}</p>
+  <table>
+    <tr><th>Question</th><th>YES/NO</th></tr>
+    {{CHECKLIST_ROWS}}
+  </table>
+  <h2>Team signatures</h2>
+  <ul class="names">{{TEAM_SIGNATURES}}</ul>
+  <h2>Authorization</h2>
+  <table class="signoff">
+    <tr>
+      <th>Lead Assessor</th>
+      <th>Supervisor Authorization</th>
+    </tr>
+    <tr>
+      <td>
+        <div><strong>{{ASSESSOR_NAME}}</strong></div>
+        <div>{{DATE}}</div>
+        <div>{{ASSESSOR_SIG}}</div>
+      </td>
+      <td>
+        <div><strong>{{SUPERVISOR_NAME}}</strong></div>
+        <div>{{STATUS}}</div>
+        <div>{{SUPERVISOR_DATE}}</div>
+        <div>{{SUPERVISOR_SIG}}</div>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>`;
+
+function fillAssessmentTemplate(values: Record<string, string>): string {
+  return ASSESSMENT_PAGE_HTML.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_match, key: string) => values[key] ?? '');
+}
+
+function listOrNone(items: readonly string[]): string {
+  return items.length === 0 ? 'None' : items.join(', ');
+}
+
+function assessmentHtml(assessment: AssessmentV2): string {
+  const permits = assessment.permits
+    .filter((permit) => permit.active)
+    .map((permit) => `${permit.name} ${permit.permit_number}`.trim());
+  const hazardRows = assessment.hazards
+    .map((hazard) => {
+      const status = hazard.severity_class ? CLASS_ACTIONS[hazard.severity_class] : '';
+      return `<tr><td>${escapeHtml(hazard.name)}</td><td>${escapeHtml(hazard.severity_class ?? '')}</td><td>${escapeHtml(hazard.controls)}</td><td>${escapeHtml(status)}</td></tr>`;
+    })
+    .join('');
+  const checklistRows = CHECKLIST_QUESTIONS.map((question, index) => {
+    const answer = assessment.checklist.answers[index];
+    const yesNo = answer === 'YES' || answer === 'NO' ? answer : '';
+    return `<tr><td>${escapeHtml(question)}</td><td>${escapeHtml(yesNo)}</td></tr>`;
+  }).join('');
+  const teamSignatures = assessment.team_members
+    .map((member) => `<li>${escapeHtml(`${member.name} ${member.surname}`.trim())}</li>`)
+    .join('');
+  const assessorSignature = '<em>[Assessor Signature on Record]</em>';
+  const supervisorSignature = assessment.supervisor_signature_uri
+    ? `<img src="${escapeHtml(assessment.supervisor_signature_uri)}" alt="" />`
+    : '[Pending Supervisor Authorization]';
+  return fillAssessmentTemplate({
+    DATE: escapeHtml(formatTimestamp(assessment.date)),
+    SHIFT: escapeHtml(assessment.shift),
+    WORKPLACE: escapeHtml(assessment.workplace),
+    DEPARTMENT: escapeHtml(assessment.department),
+    ASSESSOR: escapeHtml(assessment.assessor),
+    ASSESSOR_NAME: escapeHtml(assessment.assessor),
+    PERMITS: escapeHtml(listOrNone(permits)),
+    EQUIPMENT: escapeHtml(listOrNone(assessment.equipment)),
+    PPE: escapeHtml(listOrNone(assessment.ppe)),
+    HAZARD_ROWS: hazardRows,
+    CHECKLIST_ROWS: checklistRows,
+    TEAM_SIGNATURES: teamSignatures,
+    STATUS: escapeHtml(assessment.status),
+    SUPERVISOR_NAME: '',
+    SUPERVISOR_DATE: escapeHtml(
+      assessment.supervisor_signed_at ? formatTimestamp(assessment.supervisor_signed_at) : '',
+    ),
+    ASSESSOR_SIG: assessorSignature,
+    SUPERVISOR_SIG: supervisorSignature,
+  });
 }
 
 export function AssessmentReviewScreen({ navigation, route }: Props) {
@@ -117,11 +214,7 @@ export function AssessmentReviewScreen({ navigation, route }: Props) {
     try {
       const result = await processSyncQueue();
       await reload();
-      if (!result.success) {
-        Alert.alert('Sync', result.error ?? 'Sync failed.');
-        return;
-      }
-      Alert.alert('Sync', result.synced === 0 ? 'The server did not confirm this assessment. It stays ready.' : 'Submitted to the surface server.');
+      handleSyncOutcome(result.success);
     } finally {
       setBusy(false);
     }
@@ -138,24 +231,11 @@ export function AssessmentReviewScreen({ navigation, route }: Props) {
     }
   };
 
-  const onExport = async () => {
+  const onExport = () => {
     if (!assessment) {
       return;
     }
-    try {
-      const file = await Print.printToFileAsync({
-        html: assessmentHtml(assessment),
-        width: 595,
-        height: 842,
-      });
-      await Sharing.shareAsync(file.uri, {
-        mimeType: 'application/pdf',
-        UTI: 'com.adobe.pdf',
-        dialogTitle: 'Export assessment PDF',
-      });
-    } catch (error) {
-      Alert.alert('Export failed', errorMessage(error));
-    }
+    void handleExportPdf(assessmentHtml(assessment));
   };
 
   if (missing) {

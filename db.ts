@@ -601,12 +601,29 @@ async function migrateLegacyAssessments(db: SQLite.SQLiteDatabase): Promise<void
   });
 }
 
+async function ensureAssessmentsV2Permits(db: SQLite.SQLiteDatabase): Promise<void> {
+  try {
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(assessments_v2)');
+    const hasPermits = columns.some((column) => column.name === 'permits');
+    if (!hasPermits) {
+      await db.execAsync('ALTER TABLE assessments_v2 ADD COLUMN permits TEXT');
+    }
+  } catch (error) {
+    console.warn('Migration warning for assessments_v2:', error);
+  }
+}
+
 export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!databasePromise) {
-    databasePromise = openDatabase().catch((error: unknown) => {
-      databasePromise = null;
-      throw error;
-    });
+    databasePromise = openDatabase()
+      .then(async (db) => {
+        await ensureAssessmentsV2Permits(db);
+        return db;
+      })
+      .catch((error: unknown) => {
+        databasePromise = null;
+        throw error;
+      });
   }
   return databasePromise;
 }
